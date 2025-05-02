@@ -14,28 +14,28 @@ find an optimized schedule
 ## Strategy
 
 #### Path Calculation
-Directed Acyclic Graph
-Only topological paths are explored
-Backtracking (DFS)
-dynamic programming
+Directed Acyclic Graph  
+Only topological paths are explored  
+Backtracking (DFS)  
+dynamic programming  
 - bottom up approach
 - memoization
 - 0/1 knapsack problem
 
-To find all permutations ignoring topological order would be 
+To find all permutations ignoring topological order would be  
 $O(n!)$
 
-Our worst case:
+Our worst case:  
 $O(T × n × W)$
 - $T$ = maximum time steps until completion
 - $n$ = number of tasks
 - $W$ = number of workers
 
 #### Unused Methods
-Libraries
-top-down
-Mixed Integer Linear Programming
-Constraint Programming
-Greedy Algorithms
-Heuristic Search
+Libraries  
+top-down  
+Mixed Integer Linear Programming  
+Constraint Programming  
+Greedy Algorithms  
+Heuristic Search  
 
