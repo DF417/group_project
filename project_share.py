@@ -154,10 +154,12 @@ for time, task_ids in schedule:
 # --- Check Deadlines ---
 deadlines_met = check_deadlines(tasks_input, schedule)
 
-# Print out which tasks met their deadlines
+# Print out which tasks met their deadlines (if they had any)
 print("\nDeadline Status:")
 for task_id, met in deadlines_met.items():
-    if not met:
+    if tasks_input[task_id].deadline is None:
+        continue  # Skip tasks without deadlines
+    if met:
         print(f"  Task {task_id}: Deadline Met")
     else:
         print(f"  Task {task_id}: Missed Deadline")
