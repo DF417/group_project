@@ -1,10 +1,9 @@
 import heapq
-from typing import List, Tuple, Dict, Set
+from typing import List, Dict, Tuple, Optional
 
-# --- Task Definition ---
 class Task:
-    def __init__(self, id: str, duration: int, dependencies: List[str], workers_required: int, 
-                 priority: int = 1, deadline: int = None):
+    def __init__(self, id: str, duration: int, dependencies: List[str], workers_required: int,
+                 priority: int = 1, deadline: Optional[int] = None):
         self.id = id
         self.duration = duration
         self.dependencies = dependencies
@@ -12,115 +11,163 @@ class Task:
         self.priority = priority
         self.deadline = deadline
 
-# --- Scheduler Class ---
-class Scheduler:
+    def __repr__(self):
+        return (f"Task(id={self.id}, duration={self.duration}, deps={self.dependencies}, "
+                f"workers={self.workers_required}, priority={self.priority}, deadline={self.deadline})")
+
+class IncrementalScheduler:
     def __init__(self, tasks: Dict[str, Task], total_workers: int):
         self.tasks = tasks
         self.total_workers = total_workers
-        self.completed: Set[str] = set()
+        self.time = 0
+        self.completed = set()
         self.in_progress: Dict[str, Tuple[int, Task]] = {}
         self.events: List[Tuple[int, str]] = []
-        self.schedule: List[Tuple[int, List[str]]] = []
-        self.time = 0
-
-    def add_task(self, task: Task):
-        self.tasks[task.id] = task
-
-    def remove_task(self, task_id: str):
-        if task_id in self.tasks:
-            del self.tasks[task_id]
-
-    def update_task_priority(self, task_id: str, new_priority: int):
-        if task_id in self.tasks:
-            self.tasks[task_id].priority = new_priority
+        self.schedule: List[Tuple[int, List[str], List[str]]] = []
+        self.task_end_times: Dict[str, int] = {}
 
     def get_ready_tasks(self) -> List[Task]:
-        ready = []
-        for task_id, task in self.tasks.items():
-            if task_id in self.completed or task_id in self.in_progress:
-                continue
-            if all(dep in self.completed for dep in task.dependencies):
-                ready.append(task)
-        return ready
+        return [
+            task for task_id, task in self.tasks.items()
+            if task_id not in self.completed
+            and task_id not in self.in_progress
+            and all(dep in self.completed for dep in task.dependencies)
+        ]
 
-    def knapsack(self, tasks: List[Task], W: int) -> List[Task]:
+    def knapsack(self, tasks: List[Task], available_workers: int) -> List[Task]:
         n = len(tasks)
-        dp = [0.0] * (W + 1)
-        track = [set() for _ in range(W + 1)]
+        dp = [0] * (available_workers + 1)
+        track = [set() for _ in range(available_workers + 1)]
 
         for i, task in enumerate(tasks):
-            # Time-aware score: prioritize shorter, high-priority tasks
-            score = task.priority / task.duration
-            for w in range(W, task.workers_required - 1, -1):
-                if dp[w - task.workers_required] + score > dp[w]:
-                    dp[w] = dp[w - task.workers_required] + score
+            for w in range(available_workers, task.workers_required - 1, -1):
+                if dp[w - task.workers_required] + task.priority > dp[w]:
+                    dp[w] = dp[w - task.workers_required] + task.priority
                     track[w] = track[w - task.workers_required].copy()
                     track[w].add(i)
 
-        best_w = max(range(W + 1), key=lambda i: dp[i])
+        best_w = max(range(available_workers + 1), key=lambda i: dp[i])
         return [tasks[i] for i in track[best_w]]
 
-    def step(self):
+    def step(self) -> bool:
+        if len(self.completed) == len(self.tasks):
+            return False
+
+        just_completed = []
         while self.events and self.events[0][0] <= self.time:
             end_time, task_id = heapq.heappop(self.events)
             self.completed.add(task_id)
+            just_completed.append(task_id)
             del self.in_progress[task_id]
+            self.task_end_times[task_id] = end_time
 
-        workers_in_use = sum(task.workers_required for _, task in self.in_progress.values())
-        available_workers = self.total_workers - workers_in_use
+        workers_used = sum(task.workers_required for _, task in self.in_progress.values())
+        available_workers = self.total_workers - workers_used
 
-        ready_tasks = self.get_ready_tasks()
-        selected_tasks = self.knapsack(ready_tasks, available_workers)
+        ready = self.get_ready_tasks()
+        selected = self.knapsack(ready, available_workers)
 
-        for task in selected_tasks:
+        just_started = []
+        for task in selected:
             finish_time = self.time + task.duration
             self.in_progress[task.id] = (finish_time, task)
             heapq.heappush(self.events, (finish_time, task.id))
+            just_started.append(task.id)
 
-        if selected_tasks:
-            self.schedule.append((self.time, [task.id for task in selected_tasks]))
+        self.schedule.append((self.time, just_started, just_completed))
 
-        if not selected_tasks and self.events:
-            self.time = self.events[0][0]
-        else:
-            self.time += 1
+        print(f"\nTime: {self.time}")
+        print(f"Completed this step: {just_completed}")
+        print(f"Started this step: {just_started}")
+        print("In Progress:")
+        for tid, (ft, t) in self.in_progress.items():
+            print(f"  - {tid} (ends at {ft})")
 
-    def run(self):
-        while len(self.completed) < len(self.tasks):
-            self.step()
-        return self.schedule
-
-    def check_deadlines(self) -> Dict[str, str]:
-        task_end_times = {}
-        for time, task_ids in self.schedule:
-            for task_id in task_ids:
-                end = time + self.tasks[task_id].duration
-                task_end_times[task_id] = end
-
-        deadlines_status = {}
-        for task_id, task in self.tasks.items():
+        for tid in just_completed:
+            task = self.tasks[tid]
             if task.deadline is not None:
-                deadlines_status[task_id] = "Met" if task_end_times.get(task_id, float('inf')) <= task.deadline else "Missed"
-        return deadlines_status
+                status = "Met" if self.task_end_times[tid] <= task.deadline else "Missed"
+                print(f"Deadline check for {tid}: {status} (Deadline: {task.deadline}, Ended: {self.task_end_times[tid]})")
 
-# --- Example Usage ---
+        self.time += 1
+        return True
+
+    def run_interactive(self):
+        while True:
+            proceed = self.step()
+            if not proceed:
+                break
+            command = input("\nPress Enter to continue or type 'add', 'mod', 'del', 'exit': ").strip().lower()
+            if command == "add":
+                self.add_task_prompt()
+            elif command == "mod":
+                self.modify_task_prompt()
+            elif command == "del":
+                self.delete_task_prompt()
+            elif command == "exit":
+                print("Exiting scheduler.")
+                break
+
+        print("\nFinal Task Completion Times:")
+        for task_id, end_time in self.task_end_times.items():
+            task = self.tasks[task_id]
+            deadline_info = ""
+            if task.deadline is not None:
+                status = "Met" if end_time <= task.deadline else "Missed"
+                deadline_info = f" | Deadline: {task.deadline} ({status})"
+            print(f"  - Task {task_id}: completed at {end_time}{deadline_info}")
+
+    def add_task_prompt(self):
+        print("Add a new task")
+        id = input("ID: ").strip()
+        duration = int(input("Duration: "))
+        deps = input("Dependencies (comma separated): ").strip().split(",") if input("Dependencies? (y/n): ").strip().lower() == 'y' else []
+        deps = [d.strip() for d in deps if d.strip()]
+        workers = int(input("Workers required: "))
+        priority = int(input("Priority (default 1): ") or "1")
+        deadline_input = input("Deadline (optional): ").strip()
+        deadline = int(deadline_input) if deadline_input else None
+        self.tasks[id] = Task(id, duration, deps, workers, priority, deadline)
+        print(f"Task {id} added.")
+
+    def modify_task_prompt(self):
+        id = input("Enter task ID to modify: ").strip()
+        if id not in self.tasks:
+            print("Task not found.")
+            return
+        task = self.tasks[id]
+        print(f"Current: {task}")
+        duration = input(f"Duration ({task.duration}): ").strip()
+        workers = input(f"Workers required ({task.workers_required}): ").strip()
+        priority = input(f"Priority ({task.priority}): ").strip()
+        deadline = input(f"Deadline ({task.deadline}): ").strip()
+        deps = input(f"Dependencies (comma separated) [{', '.join(task.dependencies)}]: ").strip()
+
+        task.duration = int(duration) if duration else task.duration
+        task.workers_required = int(workers) if workers else task.workers_required
+        task.priority = int(priority) if priority else task.priority
+        task.deadline = int(deadline) if deadline else task.deadline
+        if deps:
+            task.dependencies = [d.strip() for d in deps.split(",") if d.strip()]
+        print(f"Task {id} updated.")
+
+    def delete_task_prompt(self):
+        id = input("Enter task ID to delete: ").strip()
+        if id in self.tasks:
+            del self.tasks[id]
+            print(f"Task {id} deleted.")
+        else:
+            print("Task not found.")
+
+# --- Sample Usage ---
 tasks_input = {
     'A': Task('A', 2, [], 1),
     'B': Task('B', 3, ['A'], 2),
     'C': Task('C', 4, ['A'], 1),
     'D': Task('D', 2, ['B', 'C'], 3),
     'E': Task('E', 5, ['B'], 2),
-    'F': Task('F', 3, ['D', 'E'], 1, deadline=12)
+    'F': Task('F', 3, ['D', 'E'], 1, deadline=12),
 }
 
-scheduler = Scheduler(tasks_input, total_workers=3)
-schedule = scheduler.run()
-
-print("\nSchedule (Time Step → Tasks Started):")
-for time, task_ids in schedule:
-    print(f"  Time {time}: Start tasks {task_ids}")
-
-print("\nDeadline Status:")
-deadline_results = scheduler.check_deadlines()
-for task_id, status in deadline_results.items():
-    print(f"  Task {task_id}: Deadline {status}")
+scheduler = IncrementalScheduler(tasks_input, total_workers=3)
+scheduler.run_interactive()
