@@ -35,7 +35,6 @@ class IncrementalScheduler:
         ]
 
     def knapsack(self, tasks: List[Task], available_workers: int) -> List[Task]:
-        n = len(tasks)
         dp = [0] * (available_workers + 1)
         track = [set() for _ in range(available_workers + 1)]
 
@@ -169,5 +168,5 @@ tasks_input = {
     'F': Task('F', 3, ['D', 'E'], 1, deadline=12),
 }
 
-scheduler = IncrementalScheduler(tasks_input, total_workers=3)
+scheduler = IncrementalScheduler(tasks_input, total_workers=4)
 scheduler.run_interactive()
